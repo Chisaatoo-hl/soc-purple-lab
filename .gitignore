@@ -1,0 +1,5 @@
+*.iso
+*.vdi
+*.vmdk
+.env
+*.log
