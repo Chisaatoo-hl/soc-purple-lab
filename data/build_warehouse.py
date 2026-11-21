@@ -19,8 +19,8 @@ for f in sorted(TICKETS.glob("*.json")):
     faits.append((tid, fa.get("timestamp"), (fa.get("timestamp") or "")[:10],
                   fa.get("agent"), str(fa.get("rule_id")), fa.get("niveau"),
                   t.get("occurrences") or 1, t.get("delai_prise_en_charge_s"),
-                  llm.get("verdict"), llm.get("confiance"),
-                  CONF.get((llm.get("confiance") or "").lower())))
+                  llm.get("verdict"), t.get("confiance_siem"),
+                  CONF.get((t.get("confiance_siem") or "").lower())))
     regles[str(fa.get("rule_id"))] = fa.get("description")
     ids = fa.get("mitre_id") or []
     techs = fa.get("mitre_technique") or []
