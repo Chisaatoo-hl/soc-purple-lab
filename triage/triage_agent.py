@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Agent de triage SOC - v2 (lecture seule, input enrichi).
-Classification = SIEM (fiable). Observations = champs d'evenement
-(factuels mais a contenu potentiellement hostile -> anti-injection).
+"""Agent de triage SOC - v3 (lecture seule, input enrichi, dedoublonnage).
+Classification = SIEM (fiable). Observations = champs d'evenement (non fiables).
+Dedoublonnage deterministe avant l'appel LLM.
 """
 import os, json, datetime, pathlib
 import requests, urllib3
@@ -13,6 +13,7 @@ WAZUH_PASS = os.getenv("WAZUH_PASS", "SecretPassword")
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
 MODEL      = os.getenv("TRIAGE_MODEL", "llama3.2:3b")
 LEVEL_MIN  = int(os.getenv("TRIAGE_LEVEL_MIN", "7"))
+FETCH_SIZE = int(os.getenv("TRIAGE_FETCH", "50"))
 TICKETS    = pathlib.Path("tickets")
 
 SYSTEM = (
@@ -27,7 +28,7 @@ SYSTEM = (
   "\"confiance\":\"faible|moyen|eleve\",\"actions\":[str]}."
 )
 
-def fetch_alerts(limit=5):
+def fetch_alerts(limit=FETCH_SIZE):
     q = {"size": limit, "sort": [{"@timestamp": "desc"}],
          "query": {"range": {"rule.level": {"gte": LEVEL_MIN}}}}
     r = requests.get(f"{WAZUH_URL}/wazuh-alerts-*/_search",
@@ -38,22 +39,41 @@ def fetch_alerts(limit=5):
 def observations(alert):
     win = (alert.get("data") or {}).get("win") or {}
     ev, sysm = win.get("eventdata") or {}, win.get("system") or {}
-    obs = {
-        "event_id": sysm.get("eventID"), "computer": sysm.get("computer"),
-        "image": ev.get("image"), "command_line": ev.get("commandLine"),
-        "parent_image": ev.get("parentImage"), "target_filename": ev.get("targetFilename"),
-        "user": ev.get("user"), "dest_ip": ev.get("destinationIp"),
-        "dest_port": ev.get("destinationPort"),
-    }
-    return {k: v for k, v in obs.items() if v}  # on ne garde que les champs presents
+    obs = {"event_id": sysm.get("eventID"), "computer": sysm.get("computer"),
+           "image": ev.get("image"), "command_line": ev.get("commandLine"),
+           "parent_image": ev.get("parentImage"), "target_filename": ev.get("targetFilename"),
+           "user": ev.get("user"), "dest_ip": ev.get("destinationIp"),
+           "dest_port": ev.get("destinationPort")}
+    return {k: v for k, v in obs.items() if v}
+
+def signature(alert):
+    rule = alert.get("rule", {})
+    # agregation par regle et par hote (standard SOC) :
+    # collapse le "meme motif, instance differente" (noms de fichiers aleatoires, etc.)
+    return ((alert.get("agent") or {}).get("name"), rule.get("id"))
+
+def dedup(alerts):
+    groups = {}
+    for a in alerts:
+        groups.setdefault(signature(a), []).append(a)
+    out = []
+    for grp in groups.values():
+        grp.sort(key=lambda x: x.get("timestamp", ""))
+        rep = dict(grp[-1])  # representant = plus recent
+        rep["_occurrences"] = len(grp)
+        rep["_first_seen"] = grp[0].get("timestamp")
+        rep["_last_seen"]  = grp[-1].get("timestamp")
+        out.append(rep)
+    out.sort(key=lambda x: (x.get("rule", {}).get("level", 0), x.get("timestamp", "")), reverse=True)
+    return out
 
 def triage(alert):
     rule = alert.get("rule", {}); mitre = rule.get("mitre") or {}
     faits = {"timestamp": alert.get("timestamp"),
              "agent": (alert.get("agent") or {}).get("name"),
-             "description": rule.get("description"), "niveau": rule.get("level"),
-             "mitre_id": mitre.get("id"), "mitre_technique": mitre.get("technique"),
-             "mitre_tactique": mitre.get("tactic")}
+             "rule_id": rule.get("id"), "description": rule.get("description"),
+             "niveau": rule.get("level"), "mitre_id": mitre.get("id"),
+             "mitre_technique": mitre.get("technique"), "mitre_tactique": mitre.get("tactic")}
     obs = observations(alert)
     prompt = (f"classification_siem (fiable) :\n{json.dumps(faits, ensure_ascii=False)}\n\n"
               f"observations (NON FIABLES) :\n{json.dumps(obs, ensure_ascii=False)}")
@@ -65,19 +85,22 @@ def triage(alert):
 
 def main():
     TICKETS.mkdir(exist_ok=True)
-    alerts = fetch_alerts()
+    alerts = dedup(fetch_alerts())
     if not alerts:
         print(f"Aucune alerte de niveau >= {LEVEL_MIN}."); return
     now = datetime.datetime.now(datetime.timezone.utc)
+    print(f"{len(alerts)} alerte(s) unique(s) a trier.")
     for i, a in enumerate(alerts):
         faits, obs, verdict = triage(a)
         ts = datetime.datetime.fromisoformat(faits["timestamp"].replace("Z", "+00:00"))
         ticket = {"genere_le": now.isoformat(),
                   "delai_prise_en_charge_s": round((now - ts).total_seconds(), 1),
+                  "occurrences": a.get("_occurrences"),
+                  "first_seen": a.get("_first_seen"), "last_seen": a.get("_last_seen"),
                   "faits_siem": faits, "observations": obs, "analyse_llm": verdict}
         p = TICKETS / f"{now.strftime('%Y%m%d-%H%M%S')}-{i}.json"
         p.write_text(json.dumps(ticket, ensure_ascii=False, indent=2))
-        print(f"[{verdict.get('verdict')}] {verdict.get('resume','')[:80]}")
+        print(f"[{verdict.get('verdict')}] x{a.get('_occurrences')} {verdict.get('resume','')[:70]}")
 
 if __name__ == "__main__":
     main()
