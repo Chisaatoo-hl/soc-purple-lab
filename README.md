@@ -56,8 +56,234 @@ Alert fields (file names, command lines) are **attacker-controlled**. I built a 
 - **Deterministic pre-filtering before the LLM** (severity + de-dup) cuts cost and noise.
 - **Honest coverage over cosmetic coverage:** some techniques (e.g. T1012 registry query) are intentionally left undetected and documented — detecting them naively would flood false positives. Real SOC trade-offs, not a fake 100%.
 
+## Getting started
+
+> Everything runs **locally** on VirtualBox — no cloud, no paid services.
+> Reference host: Arch Linux, i5-1240P, 16 GB RAM, `fish` shell.
+
+### Prerequisites (host)
+
+```bash
+# VirtualBox + kernel modules (DKMS)
+sudo pacman -S virtualbox virtualbox-host-dkms linux-headers
+sudo modprobe vboxdrv
+
+# Local LLM runtime
+sudo pacman -S ollama
+sudo systemctl enable --now ollama      # or: ollama serve
+ollama pull llama3.2:3b
+
+# Automation + data/BI stack
+sudo pacman -S ansible docker docker-compose python
+
+# Python deps in a venv (bash: activate; fish: activate.fish)
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt         # requests, duckdb
+ansible-galaxy collection install -r ansible/requirements.yml
+```
+
+### 1. Provision the VMs
+
+Two VMs on an **isolated** internal network (`labnet`); NAT is used only for build-time downloads.
+
+```bash
+./infra/create-lab-services.sh   # Debian: Wazuh (Docker) + PostgreSQL + Metabase
+./infra/create-dc01.sh           # Windows Server: Domain Controller + endpoint
+```
+
+Install each OS from the mounted ISO, then on DC01 run the provisioning runbook (AD forest, OU, lab user):
+
+```powershell
+# inside DC01 (PowerShell, as admin)
+.\provision-dc01.ps1
+```
+
+### 2. Deploy the blue side (SIEM + detections)
+
+Wazuh single-node runs in Docker on `lab-services`. Push the MITRE-tagged rules with Ansible (idempotent):
+
+```bash
+ansible-playbook -i ansible/inventory.ini ansible/deploy-rules.yml
+```
+
+`detections/local_rules.xml` is the source of truth (rules `100201`–`100206`, tagged **T1016 / T1057 / T1083 / T1069 / T1049**; T1012 is a documented accepted blind spot).
+
+### 3. Deploy the endpoint (Sysmon + agent)
+
+```bash
+ansible-playbook -i ansible/inventory.ini ansible/deploy-dc01.yml
+```
+
+Installs Sysmon (SwiftOnSecurity config), registers the Wazuh agent, and wires Sysmon logs into `ossec.conf`.
+
+### 4. Start / resume the lab
+
+`resume-lab.sh` replaces VirtualBox Guest Additions: it boots both VMs, re-injects the port-forwards, and **aligns both guest clocks to the host** — clock skew silently hides alerts in the dashboard.
+
+```bash
+./infra/resume-lab.sh
+```
+
+| Service | URL / port |
+|---|---|
+| Wazuh dashboard | `https://localhost:8443` |
+| Wazuh indexer (API) | `https://localhost:9200` |
+| lab-services SSH | `localhost:2222` |
+| DC01 SSH | `localhost:2223` |
+| Metabase | `http://localhost:3000` |
+
+---
+
+## Running a purple-team round ("manche")
+
+One round = **red attacks → blue triages → coverage is scored → results land in BI.**
+
+```bash
+# 0. Bring the lab up (VMs, port-forwards, clocks)
+./infra/resume-lab.sh
+
+# 1. RED — AI orchestrator picks MITRE techniques and runs them on DC01
+python red/red_orchestrator.py          # -> red/last_manche.json
+
+# 2. BLUE — AI triage reads Wazuh alerts and writes advisory tickets
+python triage/triage_agent.py           # -> tickets/
+
+# 3. SCORE — attempted vs detected, coverage %, detection delay
+python red/score_manche.py              # -> PostgreSQL (fact_couverture)
+
+# 4. DATA — medallion -> star schema, then serve to PostgreSQL
+python data/build_warehouse.py          # DuckDB: bronze / silver / gold
+python data/push_to_postgres.py
+
+# 5. BI — dashboards
+docker compose -f bi/docker-compose.yml up -d    # Metabase on :3000
+```
+
+**The improvement loop:** run a round, find techniques that were *attempted but not detected*, add a rule to `detections/local_rules.xml`, redeploy (setup step 2), and re-run. Measured progression as the attack catalogue grew: **50% → 100% → 87%** coverage.
+
+## Red-teaming the triage agent
+
+```bash
+python triage/test_injection.py
+```
+
+Demonstrates the prompt-injection defense: an attacker-controlled log field tries to force severity to `high` (fails 4/4 at the prompt level), but the **final severity is derived from the SIEM `rule.level`, not from the LLM** — so the injection is neutralized.
+
 ## Roadmap
 
 - Correlation-based detection for noisy techniques (e.g. T1012 in context).
 - Packer to fully automate the Windows OS install (beyond config management).
 - Grow the attack catalogue; multi-host attacker/defender separation when more RAM is available.
+
+## Getting started
+
+> Everything runs **locally** on VirtualBox — no cloud, no paid services.
+> Reference host: Arch Linux, i5-1240P, 16 GB RAM, `fish` shell.
+
+### Prerequisites (host)
+
+```bash
+# VirtualBox + kernel modules (DKMS)
+sudo pacman -S virtualbox virtualbox-host-dkms linux-headers
+sudo modprobe vboxdrv
+
+# Local LLM runtime
+sudo pacman -S ollama
+sudo systemctl enable --now ollama      # or: ollama serve
+ollama pull llama3.2:3b
+
+# Automation + data/BI stack
+sudo pacman -S ansible docker docker-compose python
+
+# Python deps in a venv (bash: activate; fish: activate.fish)
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt         # requests, duckdb
+ansible-galaxy collection install -r ansible/requirements.yml
+```
+
+### 1. Provision the VMs
+
+Two VMs on an **isolated** internal network (`labnet`); NAT is used only for build-time downloads.
+
+```bash
+./infra/create-lab-services.sh   # Debian: Wazuh (Docker) + PostgreSQL + Metabase
+./infra/create-dc01.sh           # Windows Server: Domain Controller + endpoint
+```
+
+Install each OS from the mounted ISO, then on DC01 run the provisioning runbook (AD forest, OU, lab user):
+
+```powershell
+# inside DC01 (PowerShell, as admin)
+.\provision-dc01.ps1
+```
+
+### 2. Deploy the blue side (SIEM + detections)
+
+Wazuh single-node runs in Docker on `lab-services`. Push the MITRE-tagged rules with Ansible (idempotent):
+
+```bash
+ansible-playbook -i ansible/inventory.ini ansible/deploy-rules.yml
+```
+
+`detections/local_rules.xml` is the source of truth (rules `100201`–`100206`, tagged **T1016 / T1057 / T1083 / T1069 / T1049**; T1012 is a documented accepted blind spot).
+
+### 3. Deploy the endpoint (Sysmon + agent)
+
+```bash
+ansible-playbook -i ansible/inventory.ini ansible/deploy-dc01.yml
+```
+
+Installs Sysmon (SwiftOnSecurity config), registers the Wazuh agent, and wires Sysmon logs into `ossec.conf`.
+
+### 4. Start / resume the lab
+
+`resume-lab.sh` replaces VirtualBox Guest Additions: it boots both VMs, re-injects the port-forwards, and **aligns both guest clocks to the host** — clock skew silently hides alerts in the dashboard.
+
+```bash
+./infra/resume-lab.sh
+```
+
+| Service | URL / port |
+|---|---|
+| Wazuh dashboard | `https://localhost:8443` |
+| Wazuh indexer (API) | `https://localhost:9200` |
+| lab-services SSH | `localhost:2222` |
+| DC01 SSH | `localhost:2223` |
+| Metabase | `http://localhost:3000` |
+
+---
+
+## Running a purple-team round ("manche")
+
+One round = **red attacks → blue triages → coverage is scored → results land in BI.**
+
+```bash
+# 0. Bring the lab up (VMs, port-forwards, clocks)
+./infra/resume-lab.sh
+
+# 1. RED — AI orchestrator picks MITRE techniques and runs them on DC01
+python red/red_orchestrator.py          # -> red/last_manche.json
+
+# 2. BLUE — AI triage reads Wazuh alerts and writes advisory tickets
+python triage/triage_agent.py           # -> tickets/
+
+# 3. SCORE — attempted vs detected, coverage %, detection delay
+python red/score_manche.py              # -> PostgreSQL (fact_couverture)
+
+# 4. DATA — medallion -> star schema, then serve to PostgreSQL
+python data/build_warehouse.py          # DuckDB: bronze / silver / gold
+python data/push_to_postgres.py
+
+# 5. BI — dashboards
+docker compose -f bi/docker-compose.yml up -d    # Metabase on :3000
+```
+
+**The improvement loop:** run a round, find techniques that were *attempted but not detected*, add a rule to `detections/local_rules.xml`, redeploy (setup step 2), and re-run. Measured progression as the attack catalogue grew: **50% → 100% → 87%** coverage.
+
+## Red-teaming the triage agent
+
+```bash
+python triage/test_injection.py
+```
+
+Demonstrates the prompt-injection defense: an attacker-controlled log field tries to force severity to `high` (fails 4/4 at the prompt level), but the **final severity is derived from the SIEM `rule.level`, not from the LLM** — so the injection is neutralized.
