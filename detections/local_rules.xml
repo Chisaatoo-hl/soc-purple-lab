@@ -1,0 +1,10 @@
+<!-- Regles custom appliquees au manager Wazuh -->
+<!-- Appliquer : docker exec -i <manager> bash -c 'cat >> /var/ossec/etc/rules/local_rules.xml' < detections/local_rules.xml ; puis wazuh-control restart -->
+<group name="sysmon,discovery,">
+  <rule id="100201" level="6">
+    <if_group>sysmon_event1</if_group>
+    <field name="win.eventdata.image" type="pcre2">(?i)\\(ipconfig|arp|route|nbtstat|nslookup)\.exe$</field>
+    <description>Reconnaissance reseau (T1016): $(win.eventdata.image)</description>
+    <mitre><id>T1016</id></mitre>
+  </rule>
+</group>
