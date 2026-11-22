@@ -15,11 +15,18 @@ ATOMIC = ("Import-Module C:\\AtomicRedTeam\\invoke-atomicredteam\\Invoke-AtomicR
           "Invoke-AtomicTest {tid}")
 
 CATALOGUE = {
-  "T1033": "System Owner/User Discovery (whoami)", "T1057": "Process Discovery",
+  "T1033": "System Owner/User Discovery (whoami)",
+  "T1057": "Process Discovery",
   "T1016": "System Network Configuration Discovery (ipconfig)",
   "T1087.001": "Local Account Discovery (net user)",
   "T1059.001": "PowerShell execution (commande benigne)",
   "T1136.001": "Create Local Account (compte de test, reversible)",
+  "T1018": "Remote System Discovery (net view / nltest)",
+  "T1049": "System Network Connections Discovery (netstat)",
+  "T1007": "System Service Discovery (sc query)",
+  "T1012": "Query Registry (reg query)",
+  "T1083": "File and Directory Discovery (dir)",
+  "T1069.001": "Permission Groups Discovery: Local Groups (net localgroup)",
 }
 OBJECTIF = ("Enchainer de la reconnaissance puis de l'execution sur un controleur "
             "de domaine, pour tester la detection du SOC.")
