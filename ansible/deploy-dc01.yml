@@ -1,0 +1,19 @@
+---
+- name: Etat souhaite de l'endpoint DC01 (Sysmon + agent Wazuh)
+  hosts: windows
+  gather_facts: false
+  tasks:
+    - name: Test de connexion Windows
+      ansible.windows.win_ping:
+
+    - name: Sysmon en service automatique et demarre
+      ansible.windows.win_service:
+        name: Sysmon64
+        start_mode: auto
+        state: started
+
+    - name: Agent Wazuh en service automatique et demarre
+      ansible.windows.win_service:
+        name: WazuhSvc
+        start_mode: auto
+        state: started
