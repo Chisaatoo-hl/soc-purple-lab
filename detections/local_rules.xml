@@ -1,26 +1,46 @@
-<!-- Regles custom appliquees au manager Wazuh -->
-<!-- Appliquer : docker exec -i <manager> bash -c 'cat >> /var/ossec/etc/rules/local_rules.xml' < detections/local_rules.xml ; puis wazuh-control restart -->
+<!-- Regles de detection custom (MITRE-tagged), source de verite -->
 <group name="sysmon,discovery,">
   <rule id="100201" level="6">
     <if_group>sysmon_event1</if_group>
     <field name="win.eventdata.image" type="pcre2">(?i)\\(ipconfig|arp|route|nbtstat|nslookup)\.exe$</field>
-    <description>Reconnaissance reseau (T1016): $(win.eventdata.image)</description>
+    <description>Reconnaissance reseau (T1016)</description>
     <mitre><id>T1016</id></mitre>
   </rule>
-</group>
-
-<group name="sysmon,discovery,">
   <rule id="100202" level="6">
     <if_group>sysmon_event1</if_group>
     <field name="win.eventdata.image" type="pcre2">(?i)\\(tasklist|qprocess)\.exe$</field>
-    <description>Discovery de processus (T1057): $(win.eventdata.image)</description>
+    <description>Process Discovery (T1057)</description>
     <mitre><id>T1057</id></mitre>
+  </rule>
+  <rule id="100203" level="6">
+    <if_group>sysmon_event1</if_group>
+    <field name="win.eventdata.image" type="pcre2">(?i)\\reg\.exe$</field>
+    <field name="win.eventdata.commandLine" type="pcre2">(?i)\bquery\b</field>
+    <description>Query Registry (T1012)</description>
+    <mitre><id>T1012</id></mitre>
+  </rule>
+  <rule id="100204" level="6">
+    <if_group>sysmon_event1</if_group>
+    <field name="win.eventdata.image" type="pcre2">(?i)\\(tree\.com|where\.exe|forfiles\.exe|fsutil\.exe)$</field>
+    <description>File and Directory Discovery (T1083)</description>
+    <mitre><id>T1083</id></mitre>
+  </rule>
+  <rule id="100205" level="6">
+    <if_group>sysmon_event1</if_group>
+    <field name="win.eventdata.commandLine" type="pcre2">(?i)localgroup</field>
+    <description>Permission Groups Discovery - Local Groups (T1069)</description>
+    <mitre><id>T1069</id></mitre>
+  </rule>
+  <rule id="100206" level="6">
+    <if_group>sysmon_event1</if_group>
+    <field name="win.eventdata.image" type="pcre2">(?i)\\netstat\.exe$</field>
+    <description>System Network Connections Discovery (T1049)</description>
+    <mitre><id>T1049</id></mitre>
   </rule>
 </group>
 
-<group name="sysmon,discovery,">
-  <rule id="100203" level="6"><if_group>sysmon_event1</if_group><field name="win.eventdata.image" type="pcre2">(?i)\\reg\.exe$</field><description>Query Registry (T1012)</description><mitre><id>T1012</id></mitre></rule>
-  <rule id="100204" level="6"><if_group>sysmon_event1</if_group><field name="win.eventdata.image" type="pcre2">(?i)\\(tree\.com|where\.exe|forfiles\.exe|fsutil\.exe)$</field><description>File and Directory Discovery (T1083)</description><mitre><id>T1083</id></mitre></rule>
-  <rule id="100205" level="6"><if_group>sysmon_event1</if_group><field name="win.eventdata.commandLine" type="pcre2">(?i)localgroup</field><description>Permission Groups Discovery - Local Groups (T1069)</description><mitre><id>T1069</id></mitre></rule>
-  <rule id="100206" level="6"><if_group>sysmon_event1</if_group><field name="win.eventdata.image" type="pcre2">(?i)\\netstat\.exe$</field><description>System Network Connections Discovery (T1049)</description><mitre><id>T1049</id></mitre></rule>
-</group>
+<!-- T1012 (Query Registry) : NON detecte, volontairement.
+     'reg query' est extremement courant (logiciels legitimes) : une regle de
+     process large genererait trop de faux positifs. A traiter par correlation
+     (reg query + autre activite suspecte, meme hote, fenetre courte), pas par
+     une regle isolee. Angle mort assume et documente. -->
