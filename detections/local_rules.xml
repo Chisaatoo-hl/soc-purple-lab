@@ -8,3 +8,12 @@
     <mitre><id>T1016</id></mitre>
   </rule>
 </group>
+
+<group name="sysmon,discovery,">
+  <rule id="100202" level="6">
+    <if_group>sysmon_event1</if_group>
+    <field name="win.eventdata.image" type="pcre2">(?i)\\(tasklist|qprocess)\.exe$</field>
+    <description>Discovery de processus (T1057): $(win.eventdata.image)</description>
+    <mitre><id>T1057</id></mitre>
+  </rule>
+</group>
