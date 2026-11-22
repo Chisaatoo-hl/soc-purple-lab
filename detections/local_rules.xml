@@ -17,3 +17,10 @@
     <mitre><id>T1057</id></mitre>
   </rule>
 </group>
+
+<group name="sysmon,discovery,">
+  <rule id="100203" level="6"><if_group>sysmon_event1</if_group><field name="win.eventdata.image" type="pcre2">(?i)\\reg\.exe$</field><description>Query Registry (T1012)</description><mitre><id>T1012</id></mitre></rule>
+  <rule id="100204" level="6"><if_group>sysmon_event1</if_group><field name="win.eventdata.image" type="pcre2">(?i)\\(tree\.com|where\.exe|forfiles\.exe|fsutil\.exe)$</field><description>File and Directory Discovery (T1083)</description><mitre><id>T1083</id></mitre></rule>
+  <rule id="100205" level="6"><if_group>sysmon_event1</if_group><field name="win.eventdata.commandLine" type="pcre2">(?i)localgroup</field><description>Permission Groups Discovery - Local Groups (T1069)</description><mitre><id>T1069</id></mitre></rule>
+  <rule id="100206" level="6"><if_group>sysmon_event1</if_group><field name="win.eventdata.image" type="pcre2">(?i)\\netstat\.exe$</field><description>System Network Connections Discovery (T1049)</description><mitre><id>T1049</id></mitre></rule>
+</group>
