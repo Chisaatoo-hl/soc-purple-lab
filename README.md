@@ -11,18 +11,7 @@
 
 ## Architecture
 
-```mermaid
-flowchart LR
-    RED["AI Red Orchestrator<br/>(plan + execute, whitelist)"] -->|SSH / Atomic Red Team| DC01["DC01<br/>Windows AD (victim)"]
-    DC01 -->|Sysmon telemetry| WAZUH["Wazuh SIEM"]
-    WAZUH -->|alerts| TRIAGE["AI Triage Agent<br/>(local LLM, anti-injection)"]
-    TRIAGE -->|tickets| DUCK[("DuckDB<br/>medallion: bronze/silver/gold")]
-    DUCK -->|gold star schema| PG[("PostgreSQL<br/>serving layer")]
-    PG --> META["Metabase<br/>MTTD, verdicts, MITRE coverage"]
-    RED -.->|attempted techniques| SCORE["Coverage scoring<br/>attempted vs detected"]
-    WAZUH -.->|detected techniques| SCORE
-    SCORE --> PG
-```
+![Architecture](docs/architecture.svg)
 
 Victim machines (AD, targets) run isolated on an internal network; the tooling (SIEM, LLM brain, agents, BI) runs on the host.
 
