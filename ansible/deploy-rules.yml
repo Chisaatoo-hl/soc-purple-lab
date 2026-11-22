@@ -1,0 +1,22 @@
+---
+- name: Deployer les regles de detection Wazuh (source de verite = repo)
+  hosts: lab_services
+  become: false
+  vars:
+    manager: single-node-wazuh.manager-1
+  tasks:
+    - name: Copier local_rules.xml sur lab-services
+      ansible.builtin.copy:
+        src: ../detections/local_rules.xml
+        dest: /tmp/local_rules.xml
+      register: rules_file
+
+    - name: Injecter les regles dans le conteneur manager
+      ansible.builtin.command: >
+        docker cp /tmp/local_rules.xml {{ manager }}:/var/ossec/etc/rules/local_rules.xml
+      when: rules_file.changed
+      notify: Restart Wazuh manager
+
+  handlers:
+    - name: Restart Wazuh manager
+      ansible.builtin.command: docker exec {{ manager }} /var/ossec/bin/wazuh-control restart
