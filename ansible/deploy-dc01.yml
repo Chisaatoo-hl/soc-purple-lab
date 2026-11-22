@@ -1,19 +1,61 @@
 ---
-- name: Etat souhaite de l'endpoint DC01 (Sysmon + agent Wazuh)
+- name: Provisionner l'endpoint DC01 (Sysmon + agent Wazuh) de facon idempotente
   hosts: windows
   gather_facts: false
+  vars:
+    manager_ip: "10.10.10.40"
+    tmp: 'C:\Windows\Temp'
+    sysmon_url: "https://download.sysinternals.com/files/Sysmon.zip"
+    sysmon_cfg_url: "https://raw.githubusercontent.com/SwiftOnSecurity/sysmon-config/master/sysmonconfig-export.xml"
+    wazuh_msi_url: "https://packages.wazuh.com/4.x/windows/wazuh-agent-4.14.10-1.msi"
   tasks:
-    - name: Test de connexion Windows
-      ansible.windows.win_ping:
+    - name: Etat du service Sysmon
+      ansible.windows.win_service_info: {name: Sysmon64}
+      register: sysmon
 
-    - name: Sysmon en service automatique et demarre
-      ansible.windows.win_service:
-        name: Sysmon64
-        start_mode: auto
-        state: started
+    - name: Telecharger Sysmon
+      ansible.windows.win_get_url: {url: "{{ sysmon_url }}", dest: "{{ tmp }}\\Sysmon.zip"}
+      when: not sysmon.exists
+    - name: Decompresser Sysmon
+      community.windows.win_unzip: {src: "{{ tmp }}\\Sysmon.zip", dest: "{{ tmp }}\\Sysmon"}
+      when: not sysmon.exists
+    - name: Telecharger la config Sysmon (SwiftOnSecurity)
+      ansible.windows.win_get_url: {url: "{{ sysmon_cfg_url }}", dest: "{{ tmp }}\\sysmonconfig.xml"}
+      when: not sysmon.exists
+    - name: Installer Sysmon avec la config
+      ansible.windows.win_command: '"{{ tmp }}\\Sysmon\\Sysmon64.exe" -accepteula -i "{{ tmp }}\\sysmonconfig.xml"'
+      when: not sysmon.exists
 
-    - name: Agent Wazuh en service automatique et demarre
-      ansible.windows.win_service:
-        name: WazuhSvc
-        start_mode: auto
-        state: started
+    - name: Etat du service agent Wazuh
+      ansible.windows.win_service_info: {name: WazuhSvc}
+      register: wazuh
+
+    - name: Telecharger l'agent Wazuh
+      ansible.windows.win_get_url: {url: "{{ wazuh_msi_url }}", dest: "{{ tmp }}\\wazuh-agent.msi"}
+      when: not wazuh.exists
+    - name: Installer l'agent (pointe sur le manager)
+      ansible.windows.win_package:
+        path: "{{ tmp }}\\wazuh-agent.msi"
+        arguments: "WAZUH_MANAGER={{ manager_ip }} WAZUH_AGENT_NAME=DC01"
+        state: present
+      when: not wazuh.exists
+
+    - name: Collecte du canal Sysmon dans ossec.conf (idempotent)
+      ansible.windows.win_shell: |
+        $f = "C:\Program Files (x86)\ossec-agent\ossec.conf"
+        if (-not (Select-String -Path $f -Pattern "Microsoft-Windows-Sysmon/Operational" -Quiet)) {
+          Add-Content -Path $f -Value "`n<ossec_config><localfile><location>Microsoft-Windows-Sysmon/Operational</location><log_format>eventchannel</log_format></localfile></ossec_config>"
+          Write-Output "ADDED"
+        } else { Write-Output "PRESENT" }
+      register: sysmon_cfg
+      changed_when: "'ADDED' in sysmon_cfg.stdout"
+      notify: Restart agent Wazuh
+
+    - name: Sysmon demarre (auto)
+      ansible.windows.win_service: {name: Sysmon64, start_mode: auto, state: started}
+    - name: Agent Wazuh demarre (auto)
+      ansible.windows.win_service: {name: WazuhSvc, start_mode: auto, state: started}
+
+  handlers:
+    - name: Restart agent Wazuh
+      ansible.windows.win_service: {name: WazuhSvc, state: restarted}
