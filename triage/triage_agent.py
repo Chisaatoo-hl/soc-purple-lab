@@ -6,6 +6,9 @@ Le LLM ne fait que : resume + verdict PROPOSE (advisory) + actions.
 """
 import os, json, datetime, pathlib
 import requests, urllib3
+
+from ops_sink import upsert_triage   # triage/ops_sink.py (meme dossier)
+
 urllib3.disable_warnings()
 
 WAZUH_URL  = os.getenv("WAZUH_URL", "https://localhost:9200")
@@ -16,6 +19,14 @@ MODEL      = os.getenv("TRIAGE_MODEL", "llama3.2:3b")
 LEVEL_MIN  = int(os.getenv("TRIAGE_LEVEL_MIN", "7"))
 FETCH_SIZE = int(os.getenv("TRIAGE_FETCH", "50"))
 TICKETS    = pathlib.Path("tickets")
+
+# Verdict LLM (advisory) -> action recommandee, comparee ensuite a la decision
+# de l'analyste pour calculer le taux d'accord. A ajuster selon ta doctrine.
+VERDICT_TO_RECO = {
+    "vrai_positif": "validate",
+    "faux_positif": "false_positive",
+    "a_investiguer": "escalate",
+}
 
 SYSTEM = (
   "Tu es un analyste SOC niveau 1. Deux blocs te sont donnes. "
@@ -105,6 +116,27 @@ def main():
                   "faits_siem": faits, "observations": obs, "analyse_llm": llm}
         p = TICKETS / f"{now.strftime('%Y%m%d-%H%M%S')}-{i}.json"
         p.write_text(json.dumps(ticket, ensure_ascii=False, indent=2))
+
+        # Alimente le schema ops (console analyste). Non bloquant : si la base
+        # est indisponible, le triage continue.
+        try:
+            upsert_triage(
+                ts=ts.isoformat(),
+                agent=faits["agent"],
+                rule_id=int(faits["rule_id"]),
+                rule_level=int(faits["niveau"] or 0),
+                severity=conf,
+                description=faits["description"] or "",
+                confiance_siem=conf,
+                analyse_llm=llm.get("resume", ""),
+                technique=faits.get("mitre_id"),
+                src_ip=None,
+                raw={"faits_siem": faits, "observations": obs},
+                recommended_action=VERDICT_TO_RECO.get(llm.get("verdict")),
+            )
+        except Exception as e:
+            print(f"  [ops] ecriture ignoree: {e}")
+
         print(f"[{llm.get('verdict')}] conf_siem={conf} x{a.get('_occurrences')} {llm.get('resume','')[:55]}")
 
 if __name__ == "__main__":
