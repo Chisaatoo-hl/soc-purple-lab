@@ -1,0 +1,26 @@
+# Add these two services to bi/docker-compose.yml, under the existing `services:`
+# key (same file as postgres + metabase, so they share the default network and
+# the API can reach PostgreSQL by its service name `postgres`).
+#
+# Build contexts are relative to bi/docker-compose.yml: ../console/... assumes
+# console/ is a sibling of bi/ at the repo root. Adjust if your layout differs.
+
+  api:
+    build: ../console/api
+    environment:
+      DATABASE_URL: postgresql://soc:soc@postgres:5432/soc_gold
+      CORS_ORIGINS: http://localhost:8080
+    depends_on:
+      - postgres
+    ports:
+      - "8000:8000"
+
+  web:
+    build:
+      context: ../console/web
+      args:
+        VITE_API_URL: /api
+    depends_on:
+      - api
+    ports:
+      - "8080:80"
