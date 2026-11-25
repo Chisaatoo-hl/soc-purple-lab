@@ -122,6 +122,7 @@ Installs Sysmon (SwiftOnSecurity config), registers the Wazuh agent, and wires S
 
 ```bash
 ./infra/resume-lab.sh
+./infra/shutdown-lab.sh   # stop everything (save-state VMs + stop containers)
 ```
 
 | Service | URL / port |
